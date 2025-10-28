@@ -119,9 +119,8 @@ def _external_metrics_if_any(labels_true, labels_pred):
 
 def run_all_clusterings(X, seq_ids, labels_true=None, max_k=12, run_dbscan=False, run_all=False):
     n, d = X.shape
-    max_k = max(2, min(max_k, max(2, n - 1)))
+    max_k = max(2, min(max_k, n - 1))
     results = []
-
     def add_result(algo, params, labels_pred):
         met_int = _internal_metrics(X, labels_pred)
         met_ext = _external_metrics_if_any(labels_true, labels_pred)
@@ -132,34 +131,27 @@ def run_all_clusterings(X, seq_ids, labels_true=None, max_k=12, run_dbscan=False
             **met_int, **met_ext,
         }
         results.append(row)
-
     K_RANGE = list(range(2, max_k + 1))
     for k in K_RANGE:
         km = KMeans(n_clusters=k, n_init=10, random_state=0)
         add_result("KMeans", {"k": k}, km.fit_predict(X))
-
         mb = MiniBatchKMeans(n_clusters=k, random_state=0, batch_size=min(512, n))
         add_result("MiniBatchKMeans", {"k": k}, mb.fit_predict(X))
-
         agg = AgglomerativeClustering(n_clusters=k, linkage="ward")
         add_result("Agglomerative(ward)", {"k": k}, agg.fit_predict(X))
-
         try:
             agg_avg = AgglomerativeClustering(n_clusters=k, linkage="average", metric="euclidean")
             add_result("Agglomerative(average)", {"k": k}, agg_avg.fit_predict(X))
         except TypeError:
             agg_avg = AgglomerativeClustering(n_clusters=k, linkage="average", affinity="euclidean")
             add_result("Agglomerative(average)", {"k": k}, agg_avg.fit_predict(X))
-
         try:
             spec = SpectralClustering(n_clusters=k, random_state=0, assign_labels="kmeans", n_init=10)
             add_result("Spectral", {"k": k}, spec.fit_predict(X))
         except Exception:
             pass
-
         bir = Birch(n_clusters=k)
         add_result("Birch", {"k": k}, bir.fit_predict(X))
-
         try:
             gmm = GaussianMixture(
                 n_components=k,
@@ -172,7 +164,6 @@ def run_all_clusterings(X, seq_ids, labels_true=None, max_k=12, run_dbscan=False
         except Exception:
             add_result("GaussianMixture", {"k": k, "cov": "diag", "reg": 1e-6, "status": "failed"},
                        np.full(X.shape[0], -1, dtype=int))
-
     if run_all:
         try:
             ap = AffinityPropagation(random_state=0)
@@ -189,7 +180,6 @@ def run_all_clusterings(X, seq_ids, labels_true=None, max_k=12, run_dbscan=False
             add_result("OPTICS", {"min_samples": int(max(5, 0.02 * n))}, op.fit_predict(X))
         except Exception:
             pass
-
     if run_dbscan:
         X_std = np.std(X, axis=0).mean() + 1e-8
         for eps_mult in [0.5, 1.0, 1.5]:
@@ -200,7 +190,6 @@ def run_all_clusterings(X, seq_ids, labels_true=None, max_k=12, run_dbscan=False
                     add_result("DBSCAN", {"eps": round(float(eps), 6), "min_samples": ms}, db.fit_predict(X))
                 except Exception:
                     pass
-
     return pd.DataFrame(results)
 
 def correlate_internal_with_f1(df):
@@ -265,8 +254,6 @@ def build_and_predict(algo, params, X):
 def pick_best_configuration(df, select_by="silhouette"):
     df = df.copy()
     df = df[df["n_clusters_found"] >= 2]
-    if df.empty:
-        raise RuntimeError("Sem configurações válidas (n_clusters_found >= 2) para selecionar a melhor.")
     if select_by == "silhouette":
         df["_rank_key"] = list(zip(-df["silhouette"].fillna(-np.inf),
                                    -df["calinski"].fillna(-np.inf),
@@ -319,7 +306,7 @@ def make_plots(outdir, X_pca, ids, labels_true_map, best_algo, best_params, best
     axes[1].set_ylabel("PC2")
     axes[1].set_title("PCA PC1×PC2")
 
-    axes[2].scatter(x1, x2, c=best_labels, s=16, alpha=0.85)
+    sc = axes[2].scatter(x1, x2, c=best_labels, s=16, alpha=0.85)
     axes[2].set_xlabel("PC1")
     axes[2].set_ylabel("PC2")
     axes[2].set_title(f"Best ({best_algo}) by clusters")
@@ -343,6 +330,7 @@ def make_plots(outdir, X_pca, ids, labels_true_map, best_algo, best_params, best
     fig.savefig(os.path.join(outdir, "painel_completo.png"), dpi=150)
     plt.show()
 
+
 def main():
     ap = argparse.ArgumentParser(description="2X2 binário + PCA + Clustering (métricas internas/externas).")
     ap.add_argument("--fasta", required=True, help="Caminho do arquivo FASTA")
@@ -358,90 +346,44 @@ def main():
     ap.add_argument("--labels_csv", help="CSV opcional com seq_id,label")
     args = ap.parse_args()
 
-    # Resolve outdir absoluto e loga caminho
-    outdir = os.path.abspath(args.outdir)
-    print(f"[INFO] Outdir: {outdir}")
-
-    # Cria/limpa o outdir de forma segura
-    if os.path.isdir(outdir):
-        for item in os.listdir(outdir):
-            item_path = os.path.join(outdir, item)
+    if os.path.exists(args.outdir):
+        for item in os.listdir(args.outdir):
+            item_path = os.path.join(args.outdir, item)
             try:
                 if os.path.isfile(item_path) or os.path.islink(item_path):
                     os.unlink(item_path)
                 elif os.path.isdir(item_path):
                     shutil.rmtree(item_path)
-            except Exception as e:
-                print(f"[WARN] Não consegui remover {item_path}: {e}")
+            except Exception:
+                pass
     else:
-        os.makedirs(outdir, exist_ok=True)
+        os.makedirs(args.outdir, exist_ok=True)
 
-    # Lê FASTA
+    skips = [int(s.strip()) for s in args.skips.split(",") if s.strip()]
     seqs = read_fasta(args.fasta)
     if args.limit > 0:
         seqs = dict(list(seqs.items())[:args.limit])
-
-    if len(seqs) < 2:
-        raise ValueError("Precisamos de pelo menos 2 sequências para clusterizar (n>=2).")
-
     seq_ids = list(seqs.keys())
-
-    # Prepara features 2x2
-    skips = [int(s.strip()) for s in args.skips.split(",") if s.strip()]
     headers = [f"{p}|skip={x}" for x in skips for p in PAIRS]
     headers_index = {h: i for i, h in enumerate(headers)}
     X = np.array([features_2x2_binary(seqs[i], skips, headers_index) for i in seq_ids], dtype=np.float64)
-
-    # PCA seguro (n_components <= min(n_amostras, n_features) - 1, e >=1)
-    n_samples, n_features = X.shape
-    max_valid = max(1, min(n_samples, n_features) - 1)
-    ncomp = max(1, min(args.pca_components, max_valid))
-    print(f"[INFO] PCA components: {ncomp} (max válido={max_valid})")
-    pca = PCA(n_components=ncomp)
+    df_feat = pd.DataFrame(X, index=seq_ids, columns=headers)
+    pca = PCA(n_components=min(args.pca_components, X.shape[1]-1))
     X_pca = pca.fit_transform(X)
     df_var = pd.DataFrame({"explained_variance_ratio": pca.explained_variance_ratio_})
-
-    # Labels externas (opcional)
-    labels_true_map = None
-    if args.labels_csv:
-        try:
-            labels_true_map = load_labels_csv(args.labels_csv)
-        except Exception as e:
-            raise RuntimeError(f"Falha ao carregar labels_csv: {e}")
-
+    labels_true_map = load_labels_csv(args.labels_csv) if args.labels_csv else None
     labels_true = [labels_true_map.get(i) if labels_true_map else None for i in seq_ids]
-
-    # Clusterings
     df_clust = run_all_clusterings(X_pca, seq_ids, labels_true, args.max_k, args.run_dbscan, args.run_all)
-    cluster_metrics_csv = os.path.join(outdir, "cluster_metrics.csv")
-    df_clust.to_csv(cluster_metrics_csv, index=False, quoting=csv.QUOTE_NONNUMERIC)
-    print(f"[INFO] Métricas dos clusterings salvas em: {cluster_metrics_csv}")
-
-    if df_clust.empty or df_clust.shape[0] == 0:
-        raise RuntimeError("Nenhuma configuração de cluster foi avaliada. Verifique se há ≥2 sequências ou ajuste --max_k.")
-
-    # Melhor configuração
+    df_clust.to_csv(os.path.join(args.outdir, "cluster_metrics.csv"), index=False, quoting=csv.QUOTE_NONNUMERIC)
     best = pick_best_configuration(df_clust, args.select_by)
     best_algo = best["algo"]
     best_params = json.loads(best["params"]) if isinstance(best["params"], str) else best["params"]
-    print(f"[INFO] Melhor configuração: {best_algo} {best_params}")
-
-    # Predição final
     best_labels = build_and_predict(best_algo, best_params, X_pca)
-    best_assign_csv = os.path.join(outdir, "best_assignments.csv")
-    pd.DataFrame({"seq_id": seq_ids, "cluster": best_labels}).to_csv(best_assign_csv, index=False)
-    print(f"[INFO] Atribuições do melhor modelo salvas em: {best_assign_csv}")
-
-    # Correlações (internas x F1)
+    pd.DataFrame({"seq_id": seq_ids, "cluster": best_labels}).to_csv(os.path.join(args.outdir, "best_assignments.csv"), index=False)
     df_corr = correlate_internal_with_f1(df_clust)
-    corr_csv = os.path.join(outdir, "correlations.csv")
-    df_corr.to_csv(corr_csv, index=False)
-    print(f"[INFO] Correlações salvas em: {corr_csv}")
-
-    # Opcional: gráficos
+    df_corr.to_csv(os.path.join(args.outdir, "correlations.csv"), index=False)
     if args.plot:
-        make_plots(outdir, X_pca, seq_ids, labels_true_map, best_algo, best_params, best_labels, df_var, df_clust)
-        print(f"[INFO] Figura salva em: {os.path.join(outdir, 'painel_completo.png')}")
+        make_plots(args.outdir, X_pca, seq_ids, labels_true_map, best_algo, best_params, best_labels, df_var, df_clust)
 
 if __name__ == "__main__":
     main()
