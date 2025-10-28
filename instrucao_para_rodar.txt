@@ -1,0 +1,13 @@
+Passar parametros via terminal e rodar
+
+/usr/local/bin/python3 "/Users/rafaelmoura/Documents/Topicos em sft/analisededados/Proteinas.py" \
+  --fasta "/Users/rafaelmoura/Documents/Topicos em sft/analisededados/astral-scopedom-seqres-gd-sel-gs-bib-95-2.08.fa.txt" \
+  --outdir "/Users/rafaelmoura/Documents/Topicos em sft/analisededados/out_Proteinas" \
+  --skips "0,1,2" \
+  --limit 400 \
+  --pca_components 300 \
+  --max_k 12 \
+  --select_by davies \
+  --run_dbscan \
+  --run_all \
+  --plot
